@@ -1,21 +1,45 @@
+#!/usr/bin/env python3
+
 """
 Automated Reconnaissance Scanner
-This script runs an Nmap scan on a target, parses the XML output,
+This script runs a customizable Nmap scan on a target, parses the XML output,
 and generates a human-readable report.
 """
 
-import os
 import subprocess
+import os
 import sys
 import argparse
 import xml.etree.ElementTree as ET
 
-def run_nmap_scan(target_ip, output_xml):
+def run_nmap_scan(target_ip, output_xml, args):
 
     print(f"[+] Starting Nmap scan for: {target_ip}")
+    print(f"[+] Saving XML output to: {output_xml}")
 
-    # -sV: Probe open ports to determine service/version info
-    nmap_command = ["nmap", "-sV", "-oX", output_xml, target_ip]
+    nmap_command = ["nmap", "-sV", "-oX", output_xml]
+
+    if args.syn_scan:
+        print("[i] Adding SYN scan (-sS).")
+        nmap_command.append("-sS")
+        nmap_command = ["sudo"] + nmap_command
+
+    if args.os_detect:
+        print("[i] Adding OS detection (-O).")
+        nmap_command.append("-O")
+        nmap_command = ["sudo"] + nmap_command
+
+    if args.ports:
+        print(f"[i] Scanning specific ports: {args.ports}")
+        nmap_command.extend(["-p", args.ports])
+
+    if args.timing:
+        print(f"[i] Setting timing template to: T{args.timing}")
+        nmap_command.extend(["-T", str(args.timing)])
+
+    nmap_command.append(target_ip)
+
+    print(f"[i] Executing command: {' '.join(nmap_command)}")
 
     try:
         result = subprocess.run(
@@ -34,16 +58,16 @@ def run_nmap_scan(target_ip, output_xml):
     except subprocess.CalledProcessError as e:
         print(f"[!] Error running Nmap: {e}")
         print(f"[!] Stderr: {e.stderr}")
+        if "requires root privileges" in e.stderr:
+            print("[!] HINT: Try running the script with 'sudo' for -sS or -O scans.")
         return False
     except Exception as e:
         print(f"[!] An unexpected error occurred: {e}")
         return False
-    
 
 def parse_nmap_xml(xml_file):
 
     print(f"[+] Parsing Nmap XML file: {xml_file}")
-
     report_lines = []
     
     try:
@@ -53,7 +77,6 @@ def parse_nmap_xml(xml_file):
         host = root.find("host")
         if host is None:
             print("[!] No host information found in the XML file.")
-            # Check if Nmap reported the host as down
             runstats = root.find("runstats")
             if runstats is not None and runstats.find("hosts").get("down") == "1":
                 report_lines.append("Host appears to be down.")
@@ -66,6 +89,20 @@ def parse_nmap_xml(xml_file):
             report_lines.append(f"# Scan Report for: {address}\n")
         else:
             report_lines.append("# Scan Report\n")
+
+        # Parse OS Detection
+        os_elem = host.find("os")
+        if os_elem is not None and os_elem.find("osmatch") is not None:
+            os_name = os_elem.find("osmatch").get("name", "Unknown OS")
+            os_accuracy = os_elem.find("osmatch").get("accuracy", "0")
+            report_lines.append(f"## Operating System Guess")
+            report_lines.append(f"* **OS:** {os_name} (Accuracy: {os_accuracy}%)")
+            report_lines.append("")
+        elif os_elem is not None:
+             report_lines.append(f"## Operating System Guess")
+             report_lines.append(f"* OS detection results were inconclusive.")
+             report_lines.append("")
+
 
         # Find all ports
         ports = host.find("ports")
@@ -111,7 +148,6 @@ def parse_nmap_xml(xml_file):
 def save_report(report_lines, output_md):
 
     print(f"[+] Saving report to: {output_md}")
-
     try:
         with open(output_md, "w", encoding="utf-8") as f:
             f.write("\n".join(report_lines))
@@ -120,10 +156,10 @@ def save_report(report_lines, output_md):
         print(f"[!] Error saving report file: {e}")
 
 def main():
-    
+
     parser = argparse.ArgumentParser(
         description="Automated Nmap Reconnaissance Scanner.",
-        epilog="Example: scanner.py scanme.nmap.org"
+        epilog="Example: sudo python3 scanner.py -sS -O -T4 -p 1-1000 scanme.nmap.org"
     )
     parser.add_argument(
         "target",
@@ -134,10 +170,31 @@ def main():
         help="Base name for output files (e.g., 'my_scan'). "
              "Defaults to the target name."
     )
+    parser.add_argument(
+        "-sS", "--syn-scan",
+        action="store_true",
+        help="Run a faster SYN scan (often requires root)."
+    )
+    parser.add_argument(
+        "-O", "--os-detect",
+        action="store_true",
+        help="Enable OS detection (often requires root)."
+    )
+    parser.add_argument(
+        "-p", "--ports",
+        help="Specify ports to scan (e.g., '80,443', '1-1024')."
+    )
+    parser.add_argument(
+        "-T", "--timing",
+        type=int,
+        choices=range(0, 6),
+        metavar="[0-5]",
+        help="Set Nmap timing template (0=slowest, 5=fastest). Default is 3."
+    )
     args = parser.parse_args()
 
     target = args.target
-    
+
     if args.output:
         base_name = args.output
     else:
@@ -146,8 +203,9 @@ def main():
     output_xml = f"{base_name}_scan.xml"
     output_md = f"{base_name}_report.md"
     
+    
     print(f"[i] Scan Mode: Target is '{target}'.")
-    if not run_nmap_scan(target, output_xml):
+    if not run_nmap_scan(target, output_xml, args):
         sys.exit(1)
 
     xml_to_parse = output_xml
@@ -161,7 +219,9 @@ def main():
             print("="*30 + "\n")
             
             for line in report_data:
-                if line.startswith("# "):
+                if line.startswith("# Scan Report"):
+                    print(line.replace("# ", "").upper())
+                elif line.startswith("#"):
                     print(line.replace("# ", "").upper())
                 elif line.startswith("## "):
                     print(f"\n--- {line.replace('## ', '')} ---")
@@ -169,7 +229,7 @@ def main():
                     print(line.replace("* ", "  "))
                 else:
                     print(line)
-    
+
             save_report(report_data, output_md)
         else:
             print("[!] Failed to generate report.")
@@ -180,7 +240,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 
