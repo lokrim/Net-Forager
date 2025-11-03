@@ -1,6 +1,9 @@
 """
-    Sends an ARP request to the target IP or range and returns a list
-    of devices that responded.
+Sends an ARP request to the target IP or range and returns a list
+of devices that responded.
+
+syntax : python arp-scanner -d -t <target-network-ip-withmask>
+
 """
 
 import scapy.all as scapy
