@@ -1,6 +1,9 @@
 """
 Automated Reconnaissance Scanner
-Runs a customizable Nmap scan on a target, parses the XML output,
+Runs a customizable Nmap scan on a target, parses the XML output, outputs json
+
+syntax: 
+python nmap-scanner <options> <target-ip>
 
 options: 
 -sS : SYN scan (needs admin)
