@@ -1,8 +1,13 @@
 """
 Automated Reconnaissance Scanner
 Runs a customizable Nmap scan on a target, parses the XML output,
-and prints a JSON summary to stdout.
-In debug mode (-d/--debug), prints a human-readable table to stderr.
+
+options: 
+-sS : SYN scan (needs admin)
+-O  : OS detect (needs admin)
+-p  : define port range (1-65535)
+-T  : timing (1-5)
+-d  : debug
 """
 
 import subprocess
@@ -100,18 +105,14 @@ def parse_nmap_xml(xml_file, debug=False):
                     if down and down.isdigit() and int(down) >= 1 and (not up or int(up) == 0):
                         result["host_status"] = "down"
             return result
-
-        # Host status
         status_elem = host.find("status")
         if status_elem is not None and status_elem.get("state"):
             result["host_status"] = status_elem.get("state")
 
-        # Address
         address_elem = host.find("address")
         if address_elem is not None:
             result["address"] = address_elem.get("addr")
 
-        # OS detection (best match only)
         os_elem = host.find("os")
         if os_elem is not None:
             osmatch = os_elem.find("osmatch")
@@ -126,7 +127,6 @@ def parse_nmap_xml(xml_file, debug=False):
                 if os_info:
                     result["os"] = os_info
 
-        # Ports (only open)
         ports_elem = host.find("ports")
         if ports_elem is not None:
             for port in ports_elem.findall("port"):
@@ -177,7 +177,7 @@ def format_table(headers, rows):
 
 
 def print_debug_table(payload):
-    # High-level summary
+
     target = payload.get("target", "")
     address = payload.get("address") or ""
     host_status = payload.get("host_status") or ""
@@ -193,7 +193,6 @@ def print_debug_table(payload):
         acc_str = f" ({os_acc}%)" if os_acc != "" else ""
         print(f"OS          : {os_name}{acc_str}", file=sys.stderr)
 
-    # Open ports table
     ports = payload.get("open_ports", []) or []
     print("\nOpen Ports:", file=sys.stderr)
     if not ports:
@@ -250,17 +249,15 @@ def main():
     else:
         json_payload["error"] = "Failed to parse Nmap XML."
 
-    # Debug table to stderr, JSON to stdout
     if args.debug:
         print_debug_table(json_payload)
-
-    print(json.dumps(json_payload, indent=2))
+    else: 
+        print(json.dumps(json_payload, indent=2))
 
     if os.path.exists(output_xml):
         try:
             os.remove(output_xml)
         except Exception:
-            # Silent cleanup failure
             pass
 
 
